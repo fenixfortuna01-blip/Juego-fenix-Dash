@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>El Vuelo del Fénix - Dos Escudos</title>
+    <style>
+        :root {
+            --bg-color: #020617;
+            --accent-color: #fbbf24;
+            --fire-shield: #f97316;
+            --ice-shield: #3b82f6;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: var(--bg-color);
+            color: white;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            height: 85vh;
+            background: linear-gradient(to bottom, #0f172a, #020617);
+            border: 3px solid #1e293b;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(245, 158, 11, 0.1);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-around;
+            pointer-events: none;
+            font-size: 1.2rem;
+            font-weight: 800;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            z-index: 5;
+        }
+
+        .stat-box {
+            background: rgba(15, 23, 42, 0.6);
+            padding: 5px 15px;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        #shield-info {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            display: none;
+            z-index: 5;
+        }
+
+        #shield-label {
+            font-size: 0.8rem;
+            margin-bottom: 5px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        #shield-bar-container {
+            width: 200px;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        #shield-bar {
+            width: 100%;
+            height: 100%;
+            background: white;
+            transition: width 0.1s linear;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(4px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #overlay.active { display: flex; }
+
+        h1 { margin-bottom: 0.5rem; color: #f59e0b; font-size: 2.5rem; }
+
+        .btn {
+            padding: 15px 40px;
+            font-size: 1.4rem;
+            background: linear-gradient(45deg, #f59e0b, #ef4444);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+            transition: all 0.2s;
+        }
+
+        .btn:hover { transform: scale(1.1); filter: brightness(1.1); }
+
+        .instructions {
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: #94a3b8;
+            max-width: 400px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-layer">
+            <div class="stat-box">⭐ <span id="score">0</span></div>
+            <div class="stat-box">NIVEL <span id="level">1</span></div>
+        </div>
+
+        <div id="shield-info">
+            <div id="shield-label">Escudo Activo</div>
+            <div id="shield-bar-container">
+                <div id="shield-bar"></div>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="overlay">
+            <h1 id="overlay-title">EL FÉNIX DESCANSÓ</h1>
+            <p id="final-score" style="font-size: 1.2rem; margin: 10px 0;">Puntos: 0</p>
+            <p id="death-reason" style="margin-bottom: 30px; font-weight: bold;"></p>
+            <button class="btn" id="restart-btn">VOLVER A VOLAR</button>
+            <div class="instructions">
+                Usa ← → para moverte.<br><br>
+                ☀️ <b>Escudo Solar:</b> Te protege de la nieve ❄️.<br>
+                💧 <b>Escudo de Agua:</b> Te protege del fuego 🔥.<br>
+                ¡Si tienes el escudo correcto, destruyes el obstáculo!
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const levelElement = document.getElementById('level');
+        const overlay = document.getElementById('overlay');
+        const shieldInfo = document.getElementById('shield-info');
+        const shieldBar = document.getElementById('shield-bar');
+        const shieldLabel = document.getElementById('shield-label');
+        const restartBtn = document.getElementById('restart-btn');
+
+        let gameActive = false;
+        let score = 0;
+        let level = 1;
+        let lastTime = 0;
+        let spawnTimer = 0;
+        let scoreTimer = 0;
+        
+        const config = {
+            baseSpeed: 3.5,
+            speedIncrement: 0.4,
+            spawnRate: 900,
+            playerSpeed: 8,
+            shieldDuration: 6000 
+        };
+
+        const player = {
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 60,
+            activeShield: null, // 'fire' o 'water'
+            shieldTimeLeft: 0
+        };
+
+        let obstacles = [];
+        let particles = [];
+        let powerUps = [];
+
+        function resize() {
+            const container = document.getElementById('game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            player.x = canvas.width / 2 - player.width / 2;
+            player.y = canvas.height - 100;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        const keys = {};
+        window.addEventListener('keydown', (e) => keys[e.code] = true);
+        window.addEventListener('keyup', (e) => keys[e.code] = false);
+
+        class GameObject {
+            constructor(type) {
+                this.type = type; // 'ice', 'fire', 'p_fire', 'p_water'
+                this.width = type.startsWith('p_') ? 35 : 45;
+                this.height = this.width;
+                this.x = Math.random() * (canvas.width - this.width);
+                this.y = -this.height;
+                this.speed = config.baseSpeed + (level * config.speedIncrement);
+                if (type.startsWith('p_')) this.speed *= 0.7;
+                this.rotation = 0;
+            }
+
+            update() {
+                this.y += this.speed;
+                this.rotation += 0.02;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                ctx.rotate(this.rotation);
+                
+                let emoji = '';
+                let color = '';
+                
+                switch(this.type) {
+                    case 'ice': emoji = '❄️'; break;
+                    case 'fire': emoji = '🔥'; break;
+                    case 'p_fire': emoji = '☀️'; color = '#f97316'; break;
+                    case 'p_water': emoji = '💧'; color = '#3b82f6'; break;
+                }
+
+                if (this.type.startsWith('p_')) {
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = color;
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.font = '22px serif';
+                } else {
+                    ctx.font = '35px serif';
+                }
+                
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = 'white';
+                ctx.fillText(emoji, 0, 0);
+                ctx.restore();
+            }
+        }
+
+        function createExplosion(x, y, color, count = 15) {
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x, y,
+                    vx: (Math.random() - 0.5) * 12,
+                    vy: (Math.random() - 0.5) * 12,
+                    life: 1.0,
+                    size: Math.random() * 5 + 2,
+                    color: color
+                });
+            }
+        }
+
+        function drawPlayer() {
+            const time = Date.now();
+            const wingAnim = Math.sin(time / 150) * 15;
+            
+            // Partículas de estela
+            if (Math.random() > 0.4) {
+                let pColor = '#f97316';
+                if (player.activeShield === 'fire') pColor = '#fbbf24';
+                if (player.activeShield === 'water') pColor = '#60a5fa';
+                
+                particles.push({
+                    x: player.x + player.width/2 + (Math.random() - 0.5) * 20,
+                    y: player.y + player.height - 10,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: 2 + Math.random() * 3,
+                    life: 0.6,
+                    size: Math.random() * 4 + 1,
+                    color: pColor
+                });
+            }
+
+            ctx.save();
+            ctx.translate(player.x + player.width / 2, player.y + player.height / 2);
+
+            // Efecto Visual de Escudo Activo
+            if (player.activeShield) {
+                const sColor = player.activeShield === 'fire' ? '249, 115, 22' : '59, 130, 246';
+                ctx.beginPath();
+                ctx.arc(0, 0, 48, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(${sColor}, ${0.5 + Math.sin(time/100)*0.3})`;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                ctx.fillStyle = `rgba(${sColor}, 0.15)`;
+                ctx.fill();
+            }
+
+            // Alas
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.moveTo(-35, wingAnim); ctx.lineTo(-10, -15); ctx.lineTo(-10, 25);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(35, wingAnim); ctx.lineTo(10, -15); ctx.lineTo(10, 25);
+            ctx.fill();
+
+            // Cuerpo
+            ctx.fillStyle = '#f59e0b';
+            ctx.beginPath();
+            ctx.ellipse(0, 5, 12, 22, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Cabeza
+            ctx.beginPath();
+            ctx.arc(0, -18, 9, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ojos
+            ctx.fillStyle = "white";
+            ctx.beginPath();
+            ctx.arc(-3, -20, 2, 0, Math.PI * 2);
+            ctx.arc(3, -20, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pico
+            ctx.fillStyle = "#78350f";
+            ctx.beginPath();
+            ctx.moveTo(-3, -16); ctx.lineTo(3, -16); ctx.lineTo(0, -10);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function gameOver(reason, color) {
+            gameActive = false;
+            overlay.classList.add('active');
+            document.getElementById('final-score').innerText = `Puntos: ${score}`;
+            const dr = document.getElementById('death-reason');
+            dr.innerText = reason;
+            dr.style.color = color;
+            shieldInfo.style.display = 'none';
+            createExplosion(player.x + player.width/2, player.y + player.height/2, color, 30);
+        }
+
+        function resetGame() {
+            score = 0; level = 1;
+            obstacles = []; particles = []; powerUps = [];
+            spawnTimer = 0; scoreTimer = 0;
+            player.activeShield = null;
+            player.shieldTimeLeft = 0;
+            scoreElement.innerText = score;
+            levelElement.innerText = level;
+            overlay.classList.remove('active');
+            shieldInfo.style.display = 'none';
+            gameActive = true;
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function gameLoop(timestamp) {
+            if (!gameActive) return;
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Movimiento
+            if (keys['ArrowLeft'] && player.x > 0) player.x -= config.playerSpeed;
+            if (keys['ArrowRight'] && player.x < canvas.width - player.width) player.x += config.playerSpeed;
+
+            // Lógica de Escudo
+            if (player.activeShield) {
+                player.shieldTimeLeft -= deltaTime;
+                shieldBar.style.width = (player.shieldTimeLeft / config.shieldDuration) * 100 + '%';
+                if (player.shieldTimeLeft <= 0) {
+                    player.activeShield = null;
+                    shieldInfo.style.display = 'none';
+                }
+            }
+
+            // Puntuación
+            scoreTimer += deltaTime;
+            if (scoreTimer >= 1000) {
+                score++; scoreTimer = 0;
+                scoreElement.innerText = score;
+                if (score % 15 === 0) { level++; levelElement.innerText = level; }
+            }
+
+            // Spawn
+            spawnTimer += deltaTime;
+            if (spawnTimer > Math.max(200, config.spawnRate - (level * 45))) {
+                const rand = Math.random();
+                if (rand < 0.07) {
+                    powerUps.push(new GameObject('p_fire'));
+                } else if (rand < 0.14) {
+                    powerUps.push(new GameObject('p_water'));
+                } else {
+                    obstacles.push(new GameObject(Math.random() > 0.5 ? 'ice' : 'fire'));
+                }
+                spawnTimer = 0;
+            }
+
+            // Powerups
+            for(let i = powerUps.length -1; i >= 0; i--) {
+                const p = powerUps[i];
+                p.update(); p.draw();
+                if (p.y > canvas.height) {
+                    powerUps.splice(i, 1);
+                    continue;
+                }
+                
+                const dist = Math.sqrt(Math.pow((player.x + 30) - (p.x + 17), 2) + Math.pow((player.y + 30) - (p.y + 17), 2));
+                if (dist < 40) {
+                    player.activeShield = p.type === 'p_fire' ? 'fire' : 'water';
+                    player.shieldTimeLeft = config.shieldDuration;
+                    shieldInfo.style.display = 'block';
+                    shieldLabel.innerText = p.type === 'p_fire' ? 'Escudo Solar ☀️' : 'Escudo de Agua 💧';
+                    shieldBar.style.backgroundColor = p.type === 'p_fire' ? '#f97316' : '#3b82f6';
+                    createExplosion(p.x + 17, p.y + 17, p.type === 'p_fire' ? '#f97316' : '#3b82f6');
+                    powerUps.splice(i, 1);
+                }
+            }
+
+            // Obstáculos
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.update(); obs.draw();
+
+                const dist = Math.sqrt(Math.pow((player.x + 30) - (obs.x + 22), 2) + Math.pow((player.y + 30) - (obs.y + 22), 2));
+                
+                if (dist < 38) {
+                    // Lógica de protección
+                    if (player.activeShield === 'fire' && obs.type === 'ice') {
+                        createExplosion(obs.x + 22, obs.y + 22, '#3b82f6');
+                        obstacles.splice(i, 1);
+                        score += 5; // Recompensa por destruir
+                        scoreElement.innerText = score;
+                    } else if (player.activeShield === 'water' && obs.type === 'fire') {
+                        createExplosion(obs.x + 22, obs.y + 22, '#ef4444');
+                        obstacles.splice(i, 1);
+                        score += 5;
+                        scoreElement.innerText = score;
+                    } else {
+                        // Muerte
+                        if (obs.type === 'ice') gameOver('¡EL FRÍO TE HA CONGELADO! ❄️', '#60a5fa');
+                        else gameOver('¡EL FUEGO TE HA CONSUMIDO! 🔥', '#ef4444');
+                    }
+                }
+                if (obs.y > canvas.height) obstacles.splice(i, 1);
+            }
+
+            // Partículas
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.life -= 0.02;
+                if (p.life <= 0) particles.splice(i, 1);
+                else {
+                    ctx.globalAlpha = p.life;
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            drawPlayer();
+            requestAnimationFrame(gameLoop);
+        }
+
+        restartBtn.addEventListener('click', resetGame);
+        window.onload = () => { overlay.classList.add('active'); };
+    </script>
+</body>
+</html>
